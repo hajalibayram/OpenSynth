@@ -35,7 +35,7 @@ def split_household_ids(
     random.shuffle(unique_ids)
 
     train_ids = unique_ids[:sample_size]
-    holdout_ids = unique_ids[-sample_size:]
+    holdout_ids = unique_ids[sample_size:]
 
     return train_ids, holdout_ids
 
@@ -57,13 +57,21 @@ def split_historical_future_periods(
     Returns:
         Tuple[pd.DataFrame, pd.DataFrame]: Historical and Future dataframe.
     """
-    historical_start = df[date_col] >= "2021-05-31"
-    historical_end = df[date_col] <= "2022-02-28"
+    historical_start = df[date_col] >= "2017-06-01"
+    historical_end = df[date_col] <= "2019-02-28"
     tstr_historical_mask = historical_start & historical_end
 
-    future_start = df[date_col] >= "2022-03-01"
-    future_end = df[date_col] <= "2022-06-08"
+    future_start = df[date_col] >= "2019-03-01"
+    future_end = df[date_col] < "2020-03-01"
     tstr_future_mask = future_start & future_end
+
+    # historical_start = df[date_col] >= "2020-05-31"
+    # historical_end = df[date_col] <= "2021-05-31"
+    # tstr_historical_mask = historical_start & historical_end
+    #
+    # future_start = df[date_col] >= "2021-06-01"
+    # future_end = df[date_col] < "2022-06-08"
+    # tstr_future_mask = future_start & future_end
 
     df_historical = df.loc[tstr_historical_mask]
     df_future = df.loc[tstr_future_mask]

@@ -12,7 +12,7 @@ from opensynth.datasets.goiener import (
 
 # LCL_URL = "https://data.london.gov.uk/download/smartmeter-energy-use-data-in-london-households/3527bf39-d93e-4071-8451-df2ade1ea4f2/LCL-FullData.zip"  # noqa
 # FILE_NAME = Path("data/raw/lcl_full_data.zip")  # noqa
-CSV_FILE_NAME = Path("data/raw/GoiEner.csv")  # noqa
+CSV_FILE_NAME = Path("data/raw/GoiEner_pre.csv")  # noqa
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +40,8 @@ def get_goiener_data(download: bool, split: bool, preprocess: bool):
         f"Running get_lcl_data with download={download}, "
         f"split={split}, preprocess={preprocess}."
     )
-
+    sample_size = int(4676 * 0.75)  # 75% of households for training
     if split:
-        split_households.split_goiener_data(CSV_FILE_NAME, 2000)
+        split_households.split_goiener_data(CSV_FILE_NAME, sample_size)
     if preprocess:
         preprocess_goiener.preprocess_goiener_data()

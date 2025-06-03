@@ -155,7 +155,7 @@ def filter_missing_kwh(df: pd.DataFrame) -> pd.DataFrame:
     id_col = ["profile_id"]
     merge_cols = id_col + ["date"]
     df_group = df.groupby(merge_cols)[["kwh"]].count().reset_index()
-    df_group["required_len"] = 24  # 24 h readings
+    df_group["required_len"] = 48  # 48 hh readings
 
     df_full_data = df_group.query("required_len==kwh")  # Has all required data
     df_out = df_full_data[merge_cols].merge(df, on=merge_cols, how="inner")
@@ -259,6 +259,7 @@ def preprocess_pipeline(file_path: Path, out_path: Path):
     mean, stdev = get_mean_and_std(df)
     df = pack_smart_meter_data_into_arrays(df)
 
+    logger.error(mean)
     df_noise = create_outliers(df, mean)
 
     os.makedirs(out_path, exist_ok=True)
