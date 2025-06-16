@@ -14,7 +14,7 @@ from tqdm.auto import tqdm
 
 from opensynth.data_modules.goiener_data_module import GoiEnerDataModule
 from opensynth.data_modules.lcl_data_module import LCLDataModule
-from opensynth.models.faraday import FaradayModel
+from opensynth.models.energydiff import PLDiffusion1D
 
 DATE_COLUMNS = ["date", "DATE"]
 DATETIME_COLUMNS = ["datetime", "DATETIME"]
@@ -119,7 +119,6 @@ def load_goiener_data_by_year(
         pl.scan_csv(
             fname,
             schema={
-                "Unnamed: 0": pl.Int64,
                 "profile_id": pl.String,
                 "timestamp": pl.String,
                 "kWh": pl.String,
@@ -151,12 +150,346 @@ def load_goiener_data_by_year(
 
     return goiener
 
+import torch
+import numpy as np
+import polars as pl
+from datetime import date, datetime, timedelta, time
+from typing import Union
+from opensynth.data_modules.goiener_data_module import GoiEnerDataModule
+from opensynth.data_modules.lcl_data_module import LCLDataModule
+from opensynth.models.energydiff import PLDiffusion1D
+from opensynth.models.energydiff.calibrate import calibrate
 
 def generate_synthetic_samples(
-    model: FaradayModel,
+    model: PLDiffusion1D,
+    dm: Union[LCLDataModule, GoiEnerDataModule],
+    n_profiles: int,
+    batch_size: int = 1000,
+    step: int = 100,
+    year: int = 2022,
+    month: int | None = None,
+) -> pl.DataFrame:
+    """
+    Generate `n_profiles` synthetic half-hour traces for each day in `year` (or in a specific `month`).
+    Returns a Polars DataFrame with:
+      - N = n_days * 48 rows,
+      - 1 `datetime` column (half-hour stamps),
+      - n_profiles columns named `profile_0`…`profile_{n_profiles-1}`.
+    """
+    # 1) Build the day-level calendar
+    cal = (
+        pl.date_range(date(year, 1, 1), date(year, 12, 31), "1d", eager=True)
+          .to_frame("date")
+          .with_columns([
+              pl.col("date").dt.weekday().alias("dayofweek"),
+              pl.col("date").dt.month().alias("month"),
+          ])
+    )
+    if month is not None:
+        cal = cal.filter(pl.col("month") == month)
+    n_days = cal.height
+    if n_days == 0:
+        raise ValueError(f"No days found for year={year} month={month}")
+
+    # 2) Determine total daily samples needed
+    total_draws = n_profiles * n_days
+
+    # 3) Sample the diffusion model in one go
+    ema = getattr(model, "ema", None)
+    net = ema.ema_model if (ema and hasattr(ema, "ema_model")) else model.diffusion_model
+    raw = net.dpm_solver_sample(
+        total_num_sample=total_draws,
+        batch_size=batch_size,
+        step=step,
+        shape=(48, 1),
+    ).squeeze(-1)  # → (total_draws, 48)
+
+    # 4) Reconstruct & calibrate
+    batch = next(iter(dm.train_dataloader()))
+    train_kwh = dm.reconstruct_kwh(batch["kwh"])
+    samples_kwh = dm.reconstruct_kwh(raw).clamp(min=0)
+    calib = calibrate(train_kwh, samples_kwh).to("cpu").numpy()
+    arr = calib.reshape(n_profiles, n_days, 48)  # (profiles, days, half-hours)
+
+    # 5) Extract actual Python dates from `cal`
+    date_list = cal["date"].to_list()  # list of datetime.date
+    start_date = date_list[0]
+    end_date = date_list[-1]
+
+    start_dt = datetime.combine(start_date, time(0, 0))  # 00:00 of first day
+    end_dt = datetime.combine(end_date, time(23, 30))  # 23:30 of last day
+
+    timestamps = pl.datetime_range(
+        start_dt,  # datetime
+        end_dt,  # datetime
+        "30m",  # interval string
+        eager=True
+    )
+
+    # 7) Assemble the wide DataFrame
+    data = {"datetime": timestamps}
+    for i in range(n_profiles):
+        data[f"profile_{i}"] = arr[i].reshape(n_days * 48)
+
+    return pl.DataFrame(data)
+
+
+
+def g3enerate_synthetic_samples(
+    model: PLDiffusion1D,
+    dm: LCLDataModule | GoiEnerDataModule,
+    num_samples: int,
+    batch_size: int = 1000,
+    step: int = 100,
+    year: int = 2022,
+    month: int = None,
+) -> Tuple[torch.Tensor, pl.DataFrame]:
+    """
+    Generate `num_samples` synthetic daily profiles (48 half-hours) plus matching dates.
+
+    Returns:
+        samples_kwh_calib (torch.Tensor): shape (num_samples, 48)
+        metadata_df       (pl.DataFrame): columns [sample_id, datetime, month, dayofweek], one row per sample
+    """
+    if num_samples < 1:
+        raise ValueError("num_samples must be >= 1")
+
+    # 1) SAMPLE FROM THE DIFFUSION MODEL
+    ema = getattr(model, "ema", None)
+    net = ema.ema_model if (ema and hasattr(ema, "ema_model")) else model.diffusion_model
+    raw = net.dpm_solver_sample(
+        total_num_sample=num_samples,
+        batch_size=batch_size,
+        step=step,
+        shape=(48, 1)
+    ).squeeze(-1)  # → (num_samples, 48)
+
+    # 2) RECONSTRUCT & CALIBRATE
+    batch = next(iter(dm.train_dataloader()))
+    train_kwh = dm.reconstruct_kwh(batch["kwh"])
+    samples_kwh = dm.reconstruct_kwh(raw).clamp(min=0)
+    from opensynth.models.energydiff.calibrate import calibrate
+    calib = calibrate(train_kwh, samples_kwh).to("cpu").numpy()
+    samples_kwh_calib = torch.tensor(calib)  # (num_samples, 48)
+
+    # 3) BUILD A YEARLY CALENDAR
+    cal = (
+        pl.date_range(date(year, 1, 1), date(year, 12, 31), "1d", eager=True)
+        .to_frame("datetime")
+        .with_columns([
+            pl.col("datetime").dt.weekday().alias("dayofweek"),
+            pl.col("datetime").dt.month().alias("month"),
+        ])
+    )
+    if month is not None:
+        cal = cal.filter(pl.col("month") == month)
+
+    # 4) SAMPLE WEEKDAYS FROM THE TRAINING DISTRIBUTION
+    dow = batch["features"]["dayofweek"]
+    probs = torch.bincount(dow).float() / dow.numel()
+    sampled_dow = torch.multinomial(probs, num_samples=num_samples, replacement=True).numpy()
+
+    # 5) MAKE A “SAMPLES” FRAME AND JOIN TO ALL MATCHING DATES
+    samples_df = pl.DataFrame({
+        "sample_id": np.arange(num_samples),
+        "sampled_dayofweek": sampled_dow
+    })
+    joined = samples_df.join(
+        cal,
+        left_on="sampled_dayofweek",
+        right_on="dayofweek",
+        how="left"
+    )
+
+    # 6) PICK EXACTLY ONE DATE PER SAMPLE
+    # Try Polars grouping first
+    if hasattr(joined, "groupby"):
+        picked = (
+            joined
+            .groupby("sample_id", maintain_order=True)
+            .agg([pl.col("datetime").sample(1)])
+            .explode("datetime")
+        )
+    else:
+        # Fallback: convert to pandas, sample, then back
+        jp = joined.to_pandas()
+        # each group.sample(1) picks one random date
+        p = (
+            jp.groupby("sample_id", sort=False)["datetime"]
+            .apply(lambda s: s.sample(n=1).iloc[0])
+            .reset_index()
+        )
+        picked = pl.from_pandas(p.rename(columns={"datetime": "datetime"}))
+
+    # 7) EXTRACT month & dayofweek
+    metadata_df = (
+        picked
+        .with_columns([
+            pl.col("datetime").dt.month().alias("month"),
+            pl.col("datetime").dt.weekday().alias("dayofweek"),
+        ])
+        .select(["sample_id", "datetime", "month", "dayofweek"])
+        .sort("sample_id")
+    )
+
+    return samples_kwh_calib, metadata_df
+
+def g2enerate_synthetic_samples(
+    model: PLDiffusion1D,
+    dm: LCLDataModule | GoiEnerDataModule,
+    num_samples: int,
+    batch_size: int = 1000,
+    step: int = 100,
+    year: int = 2022,
+    month: int | None = None,
+) -> tuple[torch.Tensor, pl.DataFrame]:
+    """Generate samples using EnergyDiff model with temporal organization."""
+    # Get EMA model if available
+    ema_model = model.ema.ema_model if hasattr(model, 'ema') else model.diffusion_model
+
+    # Generate base samples
+    samples = ema_model.dpm_solver_sample(
+        total_num_sample=num_samples,
+        batch_size=batch_size,
+        step=step,
+        shape=(48, 1)
+    )
+    samples = samples.squeeze(-1)
+
+    # Get real data for calibration
+    train_data = next(iter(dm.train_dataloader()))
+    train_kwh = dm.reconstruct_kwh(train_data['kwh'])
+
+    # Reconstruct and calibrate samples
+    samples_kwh = dm.reconstruct_kwh(samples)
+    samples_kwh = torch.clip(samples_kwh, min=0)
+
+    # Calibrate samples
+    from opensynth.models.energydiff import calibrate
+    samples_kwh_calib = torch.tensor(
+        calibrate.calibrate(train_kwh, samples_kwh).to('cpu')
+    )
+
+    # Create temporal metadata matching training data patterns
+    metadata_df = (
+        pl.date_range(date(year, 1, 1), date(year, 12, 31), "1d", eager=True)
+        .alias("datetime")
+        .to_frame()
+        .with_columns([
+            pl.col("datetime").dt.weekday().alias("weekday"),
+            pl.col("datetime").dt.month().alias("month"),
+            pl.col("datetime").dt.weekday().alias("dayofweek"),
+        ])
+    )
+
+    if month is not None:
+        metadata_df = metadata_df.filter(pl.col("month") == month)
+
+    # Get weekday distribution from training data
+    weekday_dist = torch.bincount(train_data['features']['dayofweek'])
+    weekday_probs = weekday_dist / weekday_dist.sum()
+
+    # Sample weekdays according to training distribution
+    weekdays = torch.multinomial(
+        weekday_probs,
+        num_samples=len(samples_kwh_calib),
+        replacement=True
+    )
+
+    # Sort metadata by sampled weekdays
+    metadata_df = metadata_df.with_columns(
+        pl.Series("sampled_weekday", weekdays.numpy())
+    ).filter(
+        pl.col("dayofweek") == pl.col("sampled_weekday")
+    ).drop("sampled_weekday").head(len(samples_kwh_calib))
+
+    return samples_kwh_calib, metadata_df
+
+def g1enerate_synthetic_samples(
+        model: PLDiffusion1D,
+        dm: LCLDataModule | GoiEnerDataModule,
+        num_samples: int,
+        batch_size: int = 1000,
+        step: int = 100,
+        year: int = 2022,
+        month: int | None = None,
+) -> tuple[torch.Tensor, pd.DataFrame]:
+    """Generate samples using EnergyDiff model with temporal organization.
+
+    Args:
+        model: EnergyDiff model
+        dm: Data module
+        num_samples: Number of samples to generate
+        batch_size: Batch size for generation
+        step: Number of DPM-Solver steps
+        year: Year to generate samples for
+        month: Optional specific month (1-12)
+
+    Returns:
+        tuple: (samples, metadata_df) where samples is tensor of shape (num_samples, 48)
+        and metadata_df contains temporal information
+    """
+    # Get EMA model if available
+    ema_model = model.ema.ema_model if hasattr(model, 'ema') else model.diffusion_model
+
+    # Generate base samples
+    samples = ema_model.dpm_solver_sample(
+        total_num_sample=num_samples,
+        batch_size=batch_size,
+        step=step,
+        shape=(48, 1)
+    )
+    samples = samples.squeeze(-1)
+
+    # Get real data for calibration
+    train_data = next(iter(dm.train_dataloader()))
+    train_kwh = dm.reconstruct_kwh(train_data['kwh'])
+
+    # Reconstruct and calibrate samples
+    samples_kwh = dm.reconstruct_kwh(samples)
+    samples_kwh = torch.clip(samples_kwh, min=0)
+
+    # Calibrate samples
+    from opensynth.models.energydiff import calibrate
+    samples_kwh_calib = torch.tensor(
+        calibrate.calibrate(train_kwh, samples_kwh).to('cpu')
+    )
+
+    # Create temporal metadata matching training data patterns
+    metadata_df = (
+        pl.date_range(date(year, 1, 1), date(year, 12, 31), "1d", eager=True)
+        .alias("datetime")
+        .to_frame()
+        .with_columns([
+            pl.col("datetime").dt.weekday().alias("weekday"),
+            pl.col("datetime").dt.month().alias("month"),
+        ])
+    )
+
+    if month is not None:
+        metadata_df = metadata_df.filter(pl.col("month") == month)
+
+    # Sort samples by weekday pattern to match temporal structure
+    weekday_patterns = train_data['features']['dayofweek'].unique()
+    sorted_indices = []
+
+    for weekday in weekday_patterns:
+        mask = train_data['features']['dayofweek'] == weekday
+        weekday_samples = samples_kwh_calib[mask]
+        sorted_indices.extend(weekday_samples.indices)
+
+    samples_kwh_calib = samples_kwh_calib[sorted_indices]
+
+    # Take subset of metadata to match number of samples
+    metadata_df = metadata_df.sample(n=len(samples_kwh_calib), shuffle=False)
+
+    return samples_kwh_calib, metadata_df
+
+def mm(
+    model: PLDiffusion1D,
     dm: LCLDataModule | GoiEnerDataModule,
     n_samples: int,
-    year: int = 2022,
+    year: int = 2017,
     month: int | None = None,
 ) -> Generator[
     Tuple[date, float, float, np.typing.NDArray[np.float64]], None, None
@@ -167,7 +500,7 @@ def generate_synthetic_samples(
     If month is not specified, it can be any month.
 
     Args:
-        model (FaradayModel): Model
+        model (PLDiffusion1D): Model
         dm (LCLDataModule | GoiEnerDataModule): Data module.
         n_samples (int): Number of synthetic samples to generate.
         year (int, optional): Year to use for timestamps.
@@ -218,7 +551,7 @@ def generate_synthetic_samples(
 
 
 def generate_synthetic_sample_df(
-    model: FaradayModel,
+    model: PLDiffusion1D,
     dm: LCLDataModule | GoiEnerDataModule,
     n_samples: int,
     year: int = 2022,
@@ -267,7 +600,7 @@ def generate_synthetic_sample_df(
 
 
 def generate_full_synthetic_month(
-    model: FaradayModel,
+    model: PLDiffusion1D,
     dm: LCLDataModule | GoiEnerDataModule,
     year: int,
     month: int,
@@ -324,7 +657,7 @@ def generate_full_synthetic_month(
 
 
 def generate_full_synthetic_year(
-    model: FaradayModel,
+    model: PLDiffusion1D,
     dm: LCLDataModule | GoiEnerDataModule,
     year: int,
     n_samples: int = 2,

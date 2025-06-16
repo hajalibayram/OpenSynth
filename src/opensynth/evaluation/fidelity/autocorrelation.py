@@ -6,6 +6,7 @@ import pandas as pd
 import polars as pl
 import seaborn as sns
 from scipy.stats import kstest, pearsonr
+import matplotlib.pyplot as plt
 
 
 @singledispatch
@@ -165,7 +166,8 @@ def calculate_auto_correlation(
         [
             df.unpivot(
                 value_name="correlation", variable_name="time_delta"
-            ).with_columns(pl.lit(name).alias("name"))
+            ).with_columns(pl.lit(name).alias("name"),
+                           pl.col("correlation").cast(pl.Float32))
             for name, df in zip(dfs.keys(), result)
         ]
     )
@@ -176,15 +178,31 @@ def calculate_auto_correlation(
     return corr_metrics
 
 
-def plot_autocorrelation_stats(df: pd.DataFrame | pl.DataFrame):
+def plot_autocorrelation_stats(df: pd.DataFrame | pl.DataFrame, fig_name="dataset_name"):
     """CDF plot of the auto-correlation results.
 
     Args:
         df: df (DataFrame): Input DataFrame, output of`calculate_auto_correlation()`.
     """
+    plt.rcParams.update({
+        "font.size": 18,  # base font size for text
+        "axes.titlesize": 16,  # facet titles
+        "axes.labelsize": 16,  # x/y axis labels
+        "xtick.labelsize": 12,
+        "ytick.labelsize": 12,
+        "legend.fontsize": 16,
+        "figure.titlesize": 18
+    })
+
     g = sns.FacetGrid(df, col="time_delta", hue="name")
     g.map(sns.ecdfplot, "correlation")
     g.add_legend()
+
+    g.fig.subplots_adjust(top=0.8)
+    g.fig.suptitle("Auto-correlation graph for " + fig_name, )
+
+    g._legend.set_title(None)     # same effect: removes the title text
+    g.savefig(f"figures/cdf_{fig_name}.png", dpi=300, bbox_inches='tight')
 
 
 @singledispatch

@@ -4,11 +4,12 @@
 import torch
 
 from opensynth.data_modules.lcl_data_module import LCLDataModule
+from opensynth.data_modules.goiener_data_module import GoiEnerDataModule
 from opensynth.models.faraday import FaradayModel
 
 
 def generate_synthetic_samples(
-    model: FaradayModel, dm: LCLDataModule, n_samples: int
+    model: FaradayModel, dm: LCLDataModule | GoiEnerDataModule, n_samples: int
 ) -> torch.Tensor:
     """
     Generate synthetic samples from model.
@@ -31,7 +32,7 @@ def generate_synthetic_samples(
 
 
 def draw_real_data(
-    dm: LCLDataModule, n_samples: int, outliers: bool = False
+    dm: LCLDataModule | GoiEnerDataModule, n_samples: int, outliers: bool = False
 ) -> torch.Tensor:
     """
     Draw real samples from data module

@@ -6,6 +6,7 @@ import pandas as pd
 import polars as pl
 import seaborn as sns
 from scipy.stats import kstest
+import matplotlib.pyplot as plt
 
 
 @singledispatch
@@ -273,14 +274,27 @@ def _(
     )
 
 
-def plot_seasonal_stats(df: pd.DataFrame | pl.DataFrame) -> None:
+def plot_seasonal_stats(df: pd.DataFrame | pl.DataFrame, fig_name="dataset_name") -> None:
     """Boxplot of the number of peaks per season.
 
     Args:
         df: df (DataFrame): Input DataFrame or LazyFrame, output of
             `calculate_seasonal_peaks()`.
     """
-    ax = sns.boxplot(
+    plt.rcParams.update({
+        "font.size": 18,  # base font size for text
+        "axes.titlesize": 16,  # facet titles
+        "axes.labelsize": 16,  # x/y axis labels
+        "xtick.labelsize": 12,
+        "ytick.labelsize": 12,
+        "legend.fontsize": 10,
+        "figure.titlesize": 18
+    })
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    sns.boxplot(
+        ax=ax,
         data=df,
         hue="name",
         x="season",
@@ -288,8 +302,18 @@ def plot_seasonal_stats(df: pd.DataFrame | pl.DataFrame) -> None:
         order=["winter", "spring", "summer", "fall"],
         fliersize=0,
     )
-    sns.move_legend(ax, "upper left", bbox_to_anchor=(1, 1))
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles=handles[0:], labels=labels[0:])
+    # ax.set_facecolor("white")
+    # ax.grid(which='major', axis='y', linestyle='--', color='#DDDDDD')
+
+    sns.move_legend(ax, loc="upper center", bbox_to_anchor=(0.5, 0.98), ncol=5)
     sns.despine()
+    ax.set_title("Seasonal Peaks for " + fig_name)
+    plt.ylabel("Number of peaks")
+    plt.ylim(0, 500)
+    plt.savefig(f"figures/seasonal_{fig_name}.png", dpi=300, bbox_inches='tight')
+
 
 
 @singledispatch
