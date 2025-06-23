@@ -40,11 +40,10 @@ def get_lcl_data(download: bool, split: bool, preprocess: bool):
         f"Running get_lcl_data with download={download}, "
         f"split={split}, preprocess={preprocess}."
     )
-    sample_size = int(5566 * 0.75)  # 75% of households for training
 
     if download:
         datasets_utils.download_data(LCL_URL, FILE_NAME)
     if split:
-        split_households.split_lcl_data(CSV_FILE_NAME, sample_size)
+        split_households.split_lcl_data(CSV_FILE_NAME, 0.75)
     if preprocess:
         preprocess_lcl.preprocess_lcl_data()
