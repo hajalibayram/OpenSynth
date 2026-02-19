@@ -10,6 +10,7 @@ import pandas as pd
 import seaborn as sns
 import torch
 
+from opensynth.data_modules.goiener_data_module import GoiEnerDataModule
 from opensynth.data_modules.lcl_data_module import LCLDataModule
 from opensynth.evaluation.privacy import generate_attack_data
 from opensynth.models.faraday import FaradayModel
@@ -27,7 +28,7 @@ class ReconstructionAttackDataset:
 
 def create_attack_dataset(
     model: FaradayModel,
-    dm: LCLDataModule,
+    dm: LCLDataModule | GoiEnerDataModule,
     n_samples: int = 20000,
 ) -> ReconstructionAttackDataset:
     """

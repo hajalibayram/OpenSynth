@@ -5,19 +5,19 @@ import logging
 from pathlib import Path
 
 from opensynth.datasets import datasets_utils
-from opensynth.datasets.low_carbon_london import (
-    preprocess_lcl,
+from opensynth.datasets.goiener import (
+    preprocess_goiener,
     split_households,
 )
 
-LCL_URL = "https://data.london.gov.uk/download/smartmeter-energy-use-data-in-london-households/3527bf39-d93e-4071-8451-df2ade1ea4f2/LCL-FullData.zip"  # noqa
-FILE_NAME = Path("data/raw/lcl_full_data.zip")  # noqa
-CSV_FILE_NAME = Path("data/raw/CC_LCL-FullData.csv")  # noqa
+# LCL_URL = "https://data.london.gov.uk/download/smartmeter-energy-use-data-in-london-households/3527bf39-d93e-4071-8451-df2ade1ea4f2/LCL-FullData.zip"  # noqa
+# FILE_NAME = Path("data/raw/lcl_full_data.zip")  # noqa
+CSV_FILE_NAME = Path("data/raw/GoiEner_pre.csv")  # noqa
 
 logger = logging.getLogger(__name__)
 
 
-def get_lcl_data(download: bool, split: bool, preprocess: bool):
+def get_goiener_data(download: bool, split: bool, preprocess: bool):
     """
     Download, split and preprocess the Low Carbon London dataset.
     Download=True downloads and decompress data from data.london.gov.uk.
@@ -40,10 +40,8 @@ def get_lcl_data(download: bool, split: bool, preprocess: bool):
         f"Running get_lcl_data with download={download}, "
         f"split={split}, preprocess={preprocess}."
     )
-
-    if download:
-        datasets_utils.download_data(LCL_URL, FILE_NAME)
+    sample_size = int(4676 * 0.75)  # 75% of households for training
     if split:
-        split_households.split_lcl_data(CSV_FILE_NAME, 0.75)
+        split_households.split_goiener_data(CSV_FILE_NAME, sample_size)
     if preprocess:
-        preprocess_lcl.preprocess_lcl_data()
+        preprocess_goiener.preprocess_goiener_data()

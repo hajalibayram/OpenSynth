@@ -31,6 +31,7 @@ install_requires = (
     "zstd==1.5.5.1",
     "einops>=0.7.0",
     "ema-pytorch==0.4.5",
+    "typer==0.15.3"
 )
 
 setup(
