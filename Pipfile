@@ -20,6 +20,8 @@ litdata = "*"
 zstd = "*"
 einops = ">=0.7.0"
 ema-pytorch = "==0.4.5"
+polars = "*"
+pytest = "*"
 
 [dev-packages]
 pytest = "*"
@@ -35,6 +37,9 @@ viztracer = "*"
 db-dtypes = "*"
 google-cloud-bigquery-storage = "*"
 ipywidgets = "*"
+pandas-stubs = "*"
+types-seaborn = "*"
+scipy-stubs = "*"
 
 [requires]
 python_version = "3.11"

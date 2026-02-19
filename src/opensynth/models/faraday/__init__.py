@@ -2,6 +2,19 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from opensynth.models.faraday.model import FaradayModel
-from opensynth.models.faraday.vae_model import Decoder, Encoder, FaradayVAE
+from opensynth.models.faraday.stitched_model import StitchedFaradayModel
+from opensynth.models.faraday.vae_model import (
+    Decoder,
+    Encoder,
+    FaradayVAE,
+    ReparametrisationModule,
+)
 
-__all__ = ["FaradayVAE", "FaradayModel", "Encoder", "Decoder"]
+__all__ = [
+    "FaradayVAE",
+    "FaradayModel",
+    "StitchedFaradayModel",
+    "Encoder",
+    "Decoder",
+    "ReparametrisationModule",
+]
