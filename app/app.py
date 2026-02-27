@@ -5,6 +5,7 @@ from rich.logging import RichHandler
 from typing_extensions import Annotated
 
 from opensynth.datasets.low_carbon_london import get_data
+from opensynth.datasets.goiener import get_data as get_goiener_data
 
 logging.basicConfig(
     level=logging.INFO,
@@ -177,6 +178,153 @@ def preprocess_data(
         drop_nulls,
     )
 
+
+@app.command()
+def preprocess_goiener_data(
+    split: Annotated[
+        bool,
+        typer.Option(
+            "--split", help="Splits GoiEner households into training/holdout set"
+        ),
+    ] = False,
+    preprocess: Annotated[
+        bool,
+        typer.Option(
+            "--preprocess",
+            help="Preprocesses GoiEner data into daily load profiles",
+        ),
+    ] = False,
+    data_dir: Annotated[
+        str, typer.Option("--loc", help="Location of data directory.")
+    ] = "./data",
+    csv_data_path: Annotated[
+        str,
+        typer.Option(
+            "--csv_path",
+            help="Path to dataset CSV file containing, relative to data_dir.",
+        ),
+    ] = "raw/Goiener_kWh.csv",
+    sample_fraction: Annotated[
+        float,
+        typer.Option(
+            "--sample_fraction",
+            help="Fraction of households to include in the training set. \
+                Remaining fraction assigned to the holdout set. \
+                Value between 0 and 1.",
+        ),
+    ] = 0.75,
+    time_resolution: Annotated[
+        str,
+        typer.Option(
+            "--time_resolution",
+            help='Time resolution of the data, either "half_hourly" or \
+                "hourly".',
+        ),
+    ] = "hourly",
+    feature_cols: Annotated[
+        list[str],
+        typer.Option(
+            "--feature_cols",
+            help="List of feature columns to include in the dataset.",
+        ),
+    ] = ["postal_code"],
+    id_col: Annotated[
+        str,
+        typer.Option(
+            "--id_col",
+            help="Name of the household ID column.",
+        ),
+    ] = "id",
+    kwh_col: Annotated[
+        str,
+        typer.Option(
+            "--kwh_col",
+            help="Name of the kWh column.",
+        ),
+    ] = "kWh",
+    datetime_col: Annotated[
+        str,
+        typer.Option(
+            "--datetime_col",
+            help="Name of the datetime column.",
+        ),
+    ] = "timestamp",
+    utc: Annotated[
+        bool,
+        typer.Option(
+            "--utc",
+            help="Whether the datetime is in UTC.",
+        ),
+    ] = True,
+    datetime_format: Annotated[
+        str | None,
+        typer.Option(
+            "--datetime_format",
+            help="Format of the datetime column, if not standard.",
+        ),
+    ] = None,
+    historical_start: Annotated[
+        str,
+        typer.Option(
+            "--historical_start",
+            help="Start date for historical data (YYYY-MM-DD).",
+        ),
+    ] = "2021-06-01",
+    historical_end: Annotated[
+        str,
+        typer.Option(
+            "--historical_end",
+            help="End date for historical data (YYYY-MM-DD).",
+        ),
+    ] = "2033-12-31",
+    future_start: Annotated[
+        str,
+        typer.Option(
+            "--future_start",
+            help="Start date for future data (YYYY-MM-DD).",
+        ),
+    ] = "3014-01-01",
+    future_end: Annotated[
+        str,
+        typer.Option(
+            "--future_end",
+            help="End date for future data (YYYY-MM-DD).",
+        ),
+    ] = "3014-12-31",
+    drop_nulls: Annotated[
+        bool,
+        typer.Option(
+            "--drop_nulls",
+            help="Whether to drop rows with NaN kwh values. If False, will \
+            replace NaN kwh values with 0.0",
+        ),
+    ] = True,
+):
+    """
+    Split and preprocess your dataset.
+    Default args are suitable for the Goiener dataset. Modify as needed for other
+    datasets.
+    """
+
+    get_goiener_data.split_preprocess_data(
+        split,
+        preprocess,
+        data_dir,
+        csv_data_path,
+        sample_fraction,
+        time_resolution,
+        feature_cols,
+        id_col,
+        kwh_col,
+        datetime_col,
+        utc,
+        datetime_format,
+        historical_start,
+        historical_end,
+        future_start,
+        future_end,
+        drop_nulls,
+    )
 
 if __name__ == "__main__":
     app()

@@ -11,6 +11,7 @@ import pytorch_lightning as pl
 import torch
 
 from opensynth.data_modules.lcl_data_module import LCLDataModule, TrainingData
+from opensynth.data_modules.goiener_data_module import GoiEnerDataModule, TrainingData
 from opensynth.data_modules.streaming_data_module import StreamDataModule
 from opensynth.models.faraday.gaussian_mixture import (
     GaussianMixtureLightningModule,
@@ -217,7 +218,7 @@ class FaradayModel:
         """
         return self.vae_module.feature_list
 
-    def train_gmm(self, dm: Union[StreamDataModule, LCLDataModule]):
+    def train_gmm(self, dm: Union[StreamDataModule, LCLDataModule | GoiEnerDataModule]):
         """
         Train Gaussian Mixture Module
 
